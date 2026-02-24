@@ -556,6 +556,58 @@ async fn main() -> anyhow::Result<()> {
         info!("⏭️  Skipping rates routes (no database)");
         Router::new()
     };
+
+    // Setup offramp routes (withdrawal initiation)
+    let offramp_routes = if let (Some(pool), Some(cache)) = (db_pool.clone(), redis_cache.clone()) {
+        let system_wallet_address = std::env::var("SYSTEM_WALLET_ADDRESS")
+            .or_else(|_| std::env::var("SYSTEM_WALLET_MAINNET"))
+            .unwrap_or_else(|_| "GSYSTEMWALLETXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX".to_string());
+
+        let cngn_issuer_address = std::env::var("CNGN_ISSUER_ADDRESS")
+            .or_else(|_| std::env::var("CNGN_ISSUER_MAINNET"))
+            .unwrap_or_else(|_| "GCNGNISSUERXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX".to_string());
+
+        let payment_factory = std::sync::Arc::new(PaymentProviderFactory::from_env().unwrap_or_else(|e| {
+            error!("Failed to initialize payment provider factory for offramp: {}", e);
+            panic!("Cannot start without payment providers");
+        }));
+
+        // Initialize bank verification service
+        let bank_verification_config = services::bank_verification::BankVerificationConfig {
+            timeout_secs: std::env::var("BANK_VERIFICATION_TIMEOUT_SECS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(30),
+            max_retries: std::env::var("BANK_VERIFICATION_MAX_RETRIES")
+                .ok()
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(2),
+            name_match_tolerance: std::env::var("BANK_VERIFICATION_NAME_MATCH_TOLERANCE")
+                .ok()
+                .and_then(|v| v.parse::<f32>().ok())
+                .unwrap_or(0.7),
+        };
+
+        let bank_verification_service = std::sync::Arc::new(
+            services::bank_verification::BankVerificationService::new(payment_factory.clone(), bank_verification_config)
+        );
+
+        let offramp_state = api::offramp::OfframpState {
+            db_pool: std::sync::Arc::new(pool),
+            redis_cache: std::sync::Arc::new(cache),
+            payment_provider_factory: payment_factory,
+            bank_verification_service,
+            system_wallet_address,
+            cngn_issuer_address,
+        };
+
+        Router::new()
+            .route("/api/offramp/initiate", post(api::offramp::initiate_withdrawal))
+            .with_state(std::sync::Arc::new(offramp_state))
+    } else {
+        info!("⏭️  Skipping offramp routes (missing database or cache)");
+        Router::new()
+    };
     
     let app = Router::new()
         .route("/", get(root))
@@ -592,6 +644,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/cngn/payments/submit", post(submit_cngn_payment))
         .route("/api/payments/initiate", post(initiate_payment))
         .merge(onramp_routes)
+        .merge(offramp_routes)
         .merge(wallet_routes)
         .merge(rates_routes)
         .merge(webhook_routes)

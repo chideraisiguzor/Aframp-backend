@@ -2,6 +2,7 @@ pub mod onramp;
 pub mod rates;
 pub mod bills;
 pub mod fees;
+pub mod offramp;
+pub mod offramp_models;
 pub mod wallet;
 pub mod webhooks;
-pub mod onramp;

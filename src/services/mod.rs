@@ -2,6 +2,8 @@
 
 pub mod balance;
 #[cfg(feature = "database")]
+pub mod bank_verification;
+#[cfg(feature = "database")]
 pub mod cngn_payment_builder;
 #[cfg(feature = "database")]
 pub mod cngn_trustline;
