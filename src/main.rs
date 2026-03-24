@@ -463,6 +463,41 @@ async fn main() -> anyhow::Result<()> {
         info!("Offramp processor worker disabled (OFFRAMP_PROCESSOR_ENABLED=false)");
     }
 
+    // Start Stellar Confirmation Polling Worker
+    let stellar_confirm_enabled = std::env::var("STELLAR_CONFIRM_WORKER_ENABLED")
+        .unwrap_or_else(|_| "true".to_string())
+        .to_lowercase()
+        != "false";
+    if stellar_confirm_enabled {
+        if let (Some(pool), Some(client)) = (db_pool.clone(), stellar_client.clone()) {
+            let confirm_config =
+                workers::stellar_confirmation_worker::StellarConfirmationConfig::from_env();
+            let registry = prometheus::default_registry().clone();
+            match workers::stellar_confirmation_worker::WorkerMetrics::new(&registry) {
+                Ok(metrics) => {
+                    info!(
+                        poll_interval_secs = confirm_config.poll_interval.as_secs(),
+                        confirmation_threshold = confirm_config.confirmation_threshold,
+                        stale_timeout_secs = confirm_config.stale_timeout.as_secs(),
+                        "Starting Stellar confirmation polling worker"
+                    );
+                    let worker = workers::stellar_confirmation_worker::StellarConfirmationWorker::new(
+                        pool,
+                        client,
+                        confirm_config,
+                        std::sync::Arc::new(metrics),
+                    );
+                    tokio::spawn(worker.run(worker_shutdown_rx.clone()));
+                }
+                Err(e) => {
+                    error!(error = %e, "Failed to register Prometheus metrics for Stellar confirmation worker — skipping");
+                }
+            }
+        } else {
+            info!("Skipping Stellar confirmation worker (missing db pool or stellar client)");
+        }
+    } else {
+        info!("Stellar confirmation worker disabled (STELLAR_CONFIRM_WORKER_ENABLED=false)");
     // Start Onramp Processor Worker
     let onramp_enabled = std::env::var("ONRAMP_PROCESSOR_ENABLED")
         .unwrap_or_else(|_| "true".to_string())
