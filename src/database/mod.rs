@@ -10,6 +10,7 @@ pub mod payment_method_repository;
 pub mod payment_repository;
 pub mod provider_config_repository;
 pub mod repository;
+pub mod token_registry_repository;
 pub mod transaction;
 pub mod transaction_repository;
 pub mod trustline_operation_repository;
