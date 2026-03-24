@@ -12,8 +12,9 @@ mod services;
 mod workers;
 
 // Imports
+use crate::config::AppConfig;
 use crate::health::{HealthChecker, HealthStatus};
-use crate::logging::init_tracing;
+use crate::telemetry::tracer::{init_tracer, shutdown_tracer};    // Issue #104
 use crate::payments::factory::PaymentProviderFactory;
 use crate::payments::types::{
     CustomerContact, Money, PaymentMethod, PaymentRequest as ProviderPaymentRequest, ProviderName,
@@ -38,6 +39,10 @@ use tower::ServiceBuilder;
 use tower_http::request_id::{PropagateRequestIdLayer, SetRequestIdLayer};
 use tracing::{error, info};
 use uuid::Uuid;
+
+// Re-export the telemetry module so `init_tracer` / `shutdown_tracer` resolve.
+// In the real project this module lives at src/telemetry/mod.rs (Issue #104).
+mod telemetry;
 
 /// Graceful shutdown signal handler
 async fn shutdown_signal() {
@@ -73,10 +78,42 @@ async fn shutdown_signal_with_notify(shutdown_tx: watch::Sender<bool>) {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize advanced tracing
-    init_tracing();
-
+    // -------------------------------------------------------------------------
+    // 1. Load application configuration from environment variables.
+    //    This must happen before init_tracer so the OTEL_* vars are visible.
+    // -------------------------------------------------------------------------
     dotenv().ok();
+
+    let app_config = AppConfig::from_env().map_err(|e| {
+        // We cannot use tracing here — the subscriber is not initialised yet.
+        eprintln!("❌ Failed to load application configuration: {}", e);
+        anyhow::anyhow!("Configuration error: {}", e)
+    })?;
+
+    app_config.validate().map_err(|e| {
+        eprintln!("❌ Configuration validation failed: {}", e);
+        anyhow::anyhow!("Configuration validation error: {}", e)
+    })?;
+
+    // -------------------------------------------------------------------------
+    // 2. Initialise OpenTelemetry tracer provider.   (Issue #104)
+    //
+    //    init_tracer() must be called BEFORE any tracing::* macros fire so
+    //    the global subscriber is registered and all spans are exported.
+    //    It reads four fields from TelemetryConfig:
+    //      • service_name  → OTEL_SERVICE_NAME
+    //      • environment   → APP_ENV
+    //      • sampling_rate → OTEL_SAMPLING_RATE
+    //      • otlp_endpoint → OTEL_EXPORTER_OTLP_ENDPOINT
+    // -------------------------------------------------------------------------
+    init_tracer(&app_config.telemetry).map_err(|e| {
+        eprintln!("❌ Failed to initialise OpenTelemetry tracer: {}", e);
+        anyhow::anyhow!("Tracer initialisation error: {}", e)
+    })?;
+
+    // From this point all tracing::* calls produce structured JSON logs with
+    // trace_id / span_id fields and export spans to the OTLP backend.
+
     let skip_externals = std::env::var("SKIP_EXTERNALS")
         .unwrap_or_else(|_| "false".to_string())
         .to_lowercase()
@@ -84,7 +121,9 @@ async fn main() -> anyhow::Result<()> {
 
     info!(
         version = env!("CARGO_PKG_VERSION"),
-        environment = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string()),
+        environment = %app_config.telemetry.environment,
+        service = %app_config.telemetry.service_name,
+        sampling_rate = app_config.telemetry.sampling_rate,
         "🚀 Starting Aframp backend service"
     );
 
@@ -744,8 +783,28 @@ async fn main() -> anyhow::Result<()> {
             health_checker,
         })
         .layer(
+            // ---------------------------------------------------------------
+            // Middleware stack — innermost layer runs first on the way in,
+            // last on the way out.
+            //
+            // Order (outermost → innermost, i.e. the order added here):
+            //   1. SetRequestIdLayer       — assigns x-request-id UUID
+            //   2. tracing_middleware      — extracts W3C traceparent, opens
+            //                               root span per request (Issue #104)
+            //   3. request_logging_middleware — structured access log line
+            //   4. PropagateRequestIdLayer — copies x-request-id to response
+            //
+            // The tracing middleware is inserted between SetRequestId and the
+            // existing request_logging_middleware so:
+            //   • The request ID is already set when the span is created.
+            //   • The access log fires inside the span and therefore inherits
+            //     trace_id / span_id in its JSON output.
+            // ---------------------------------------------------------------
             ServiceBuilder::new()
                 .layer(SetRequestIdLayer::x_request_id(UuidRequestId))
+                .layer(axum::middleware::from_fn(
+                    crate::telemetry::middleware::tracing_middleware,  // Issue #104
+                ))
                 .layer(axum::middleware::from_fn(request_logging_middleware))
                 .layer(PropagateRequestIdLayer::x_request_id()),
         );
@@ -827,6 +886,12 @@ async fn main() -> anyhow::Result<()> {
     }
 
     info!("👋 Server shutdown complete");
+
+    // -------------------------------------------------------------------------
+    // Flush all buffered spans to the OTLP exporter before the process exits.
+    // Must be the very last call so no spans are lost during shutdown.   (Issue #104)
+    // -------------------------------------------------------------------------
+    shutdown_tracer();
 
     Ok(())
 }
