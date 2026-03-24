@@ -1,3 +1,4 @@
+pub mod maintenance;
 pub mod offramp_processor;
 pub mod payment_poller;
 pub mod transaction_monitor;
