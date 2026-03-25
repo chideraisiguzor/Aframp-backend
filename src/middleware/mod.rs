@@ -15,3 +15,5 @@ pub mod api_key;
 
 #[cfg(feature = "database")]
 pub mod scope_middleware;
+#[cfg(feature = "database")]
+pub mod request_integrity;
