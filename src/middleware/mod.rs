@@ -17,3 +17,9 @@ pub mod api_key;
 pub mod scope_middleware;
 #[cfg(feature = "database")]
 pub mod request_integrity;
+#[cfg(feature = "database")]
+pub mod hmac_signing;
+#[cfg(feature = "database")]
+pub mod replay_prevention;
+#[cfg(feature = "database")]
+pub mod signature_verification;
