@@ -4,6 +4,7 @@
 //! Metric names follow Prometheus naming conventions: snake_case, unit suffix where
 //! applicable, and the `aframp_` namespace prefix.
 
+pub mod geo_restriction;
 pub mod handler;
 pub mod tests;
 

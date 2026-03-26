@@ -9,6 +9,9 @@ pub mod api_key;
 pub mod error;
 
 #[cfg(feature = "database")]
+pub mod geo_restriction;
+
+#[cfg(feature = "database")]
 pub mod hmac_signing;
 
 #[cfg(feature = "database")]

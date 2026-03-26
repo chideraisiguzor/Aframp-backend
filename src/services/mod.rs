@@ -16,6 +16,12 @@ pub mod fee_calculation;
 #[cfg(feature = "database")]
 pub mod fee_structure;
 #[cfg(feature = "database")]
+pub mod geolocation;
+#[cfg(feature = "database")]
+pub mod geo_restriction;
+#[cfg(feature = "database")]
+pub mod geo_restriction_tests;
+#[cfg(feature = "database")]
 pub mod ip_detection;
 #[cfg(feature = "database")]
 pub mod key_rotation;

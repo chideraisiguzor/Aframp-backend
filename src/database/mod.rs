@@ -5,6 +5,7 @@ pub mod conversion_audit_repository;
 pub mod error;
 pub mod exchange_rate_repository;
 pub mod fee_structure_repository;
+pub mod geo_restriction_repository;
 pub mod ip_reputation_repository;
 pub mod oauth_scope_repository;
 pub mod onramp_quote_repository;

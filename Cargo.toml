@@ -170,6 +170,9 @@ jsonwebtoken = { version = "9.3", optional = true }
 # RSA signing for OAuth 2.0 RS256 tokens
 rsa = { version = "0.9", features = ["sha2", "pem"], optional = true }
 
+# MaxMind GeoIP2 for IP geolocation
+maxminddb = { version = "0.24", optional = true }
+
 # ---------------------------------------------------------------------------
 # OpenTelemetry — distributed tracing (Issue #104, gated by "telemetry" feature)
 # ---------------------------------------------------------------------------
