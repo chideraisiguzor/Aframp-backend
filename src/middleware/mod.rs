@@ -14,6 +14,8 @@ pub mod metrics;
 pub mod api_key;
 
 #[cfg(feature = "database")]
+pub mod replay_prevention;
+#[cfg(feature = "database")]
 pub mod scope_middleware;
 #[cfg(feature = "database")]
 pub mod request_integrity;
